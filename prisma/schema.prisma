@@ -1,0 +1,269 @@
+// WynCore - Wyn Power Corporation
+// Online Service Request and Ordering Management System
+// Prisma Schema | PostgreSQL via Supabase
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+
+enum AdminRole {
+  CEO_CFO
+  CUSTOMER_SERVICE
+  PURCHASING
+}
+
+enum OrderType {
+  PRODUCT
+  SERVICE
+}
+
+enum OrderStatus {
+  PENDING    // Submitted, awaiting admin review
+  APPROVED   // Admin approved, forwarded to engineering
+  REJECTED   // Admin rejected
+  CANCELLED  // Cancelled by customer
+  DELIVERED  // Product delivered / service completed
+}
+
+enum InvoiceStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ProductCategory {
+  TRANSFORMER
+  STREET_LIGHTING
+  CONTROL_PANEL
+  OTHER
+}
+
+enum ServiceType {
+  LAYOUT_DESIGN
+  INSTALLATION
+  CONSTRUCTION
+  TRANSMISSION_DISTRIBUTION
+  SUBSTATION
+  SOLAR_PV_UTILITY
+  SOLAR_ROOFTOP
+  OTHER
+}
+
+// ─────────────────────────────────────────────
+// CUSTOMER
+// ─────────────────────────────────────────────
+
+model Customer {
+  id            String   @id @default(uuid())
+  name          String
+  email         String   @unique
+  phone         String
+  companyOrigin String
+  passwordHash  String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  orders        Order[]
+
+  @@map("customers")
+}
+
+// ─────────────────────────────────────────────
+// ADMIN
+// ─────────────────────────────────────────────
+
+model Admin {
+  id           String     @id @default(uuid())
+  name         String
+  email        String     @unique
+  passwordHash String
+  role         AdminRole
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  // CEO/CFO exclusive: who created this admin account
+  createdById  String?
+  createdBy    Admin?     @relation("AdminCreatedBy", fields: [createdById], references: [id])
+  createdAdmins Admin[]   @relation("AdminCreatedBy")
+
+  reviewedInvoices Invoice[]
+  activityLogs     ActivityLog[]
+
+  @@map("admins")
+}
+
+// ─────────────────────────────────────────────
+// SUPPLIER
+// ─────────────────────────────────────────────
+
+model Supplier {
+  id        String    @id @default(uuid())
+  name      String
+  contact   String?
+  email     String?
+  address   String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  products  Product[]
+
+  @@map("suppliers")
+}
+
+// ─────────────────────────────────────────────
+// PRODUCT
+// ─────────────────────────────────────────────
+
+model Product {
+  id           String          @id @default(uuid())
+  name         String
+  description  String?
+  category     ProductCategory
+  price        Decimal         @db.Decimal(12, 2)
+  unit         String          @default("unit") // e.g. "unit", "set", "meter"
+  stock        Int             @default(0)
+  isAvailable  Boolean         @default(true)
+  imageUrl     String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  supplierId   String?
+  supplier     Supplier?       @relation(fields: [supplierId], references: [id])
+
+  orderItems   OrderItem[]
+
+  @@map("products")
+}
+
+// ─────────────────────────────────────────────
+// SERVICE
+// ─────────────────────────────────────────────
+
+model Service {
+  id          String      @id @default(uuid())
+  name        String
+  description String?
+  type        ServiceType
+  basePrice   Decimal?    @db.Decimal(12, 2) // optional, services may be quoted
+  isAvailable Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  serviceRequests ServiceRequest[]
+
+  @@map("services")
+}
+
+// ─────────────────────────────────────────────
+// ORDER
+// ─────────────────────────────────────────────
+
+model Order {
+  id              String      @id @default(uuid())
+  orderType       OrderType
+  status          OrderStatus @default(PENDING)
+  deliveryAddress String
+  notes           String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  customerId      String
+  customer        Customer    @relation(fields: [customerId], references: [id])
+
+  // Product order items (multiple allowed)
+  orderItems      OrderItem[]
+
+  // Service request (one per service order)
+  serviceRequest  ServiceRequest?
+
+  invoice         Invoice?
+
+  @@map("orders")
+}
+
+// ─────────────────────────────────────────────
+// ORDER ITEM (for PRODUCT orders — supports cart/multiple)
+// ─────────────────────────────────────────────
+
+model OrderItem {
+  id        String   @id @default(uuid())
+  quantity  Int
+  unitPrice Decimal  @db.Decimal(12, 2)
+  subtotal  Decimal  @db.Decimal(12, 2)
+
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+
+  @@map("order_items")
+}
+
+// ─────────────────────────────────────────────
+// SERVICE REQUEST (for SERVICE orders — one per order)
+// ─────────────────────────────────────────────
+
+model ServiceRequest {
+  id              String   @id @default(uuid())
+  details         String   // Customer describes their requirement
+  preferredDate   DateTime?
+  quotedPrice     Decimal? @db.Decimal(12, 2) // filled in by admin after review
+
+  orderId         String   @unique
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  serviceId       String
+  service         Service  @relation(fields: [serviceId], references: [id])
+
+  @@map("service_requests")
+}
+
+// ─────────────────────────────────────────────
+// INVOICE (auto-generated per order)
+// ─────────────────────────────────────────────
+
+model Invoice {
+  id            String        @id @default(uuid())
+  invoiceNumber String        @unique // e.g. INV-2026-0001
+  totalAmount   Decimal       @db.Decimal(12, 2)
+  status        InvoiceStatus @default(PENDING)
+  reviewedAt    DateTime?
+  remarks       String?       // Admin notes on approval/rejection
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  orderId       String        @unique
+  order         Order         @relation(fields: [orderId], references: [id])
+
+  reviewedById  String?
+  reviewedBy    Admin?        @relation(fields: [reviewedById], references: [id])
+
+  @@map("invoices")
+}
+
+// ─────────────────────────────────────────────
+// ACTIVITY LOG (CEO/CFO admin account actions)
+// ─────────────────────────────────────────────
+
+model ActivityLog {
+  id        String   @id @default(uuid())
+  action    String   // e.g. "CREATED_ADMIN", "DELETED_ADMIN", "APPROVED_INVOICE"
+  targetId  String?  // ID of the affected record
+  details   String?  // Additional context
+  createdAt DateTime @default(now())
+
+  adminId   String
+  admin     Admin    @relation(fields: [adminId], references: [id])
+
+  @@map("activity_logs")
+}
