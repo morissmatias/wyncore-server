@@ -17,12 +17,13 @@ export const placeProductOrder = async (req, res, next) => {
       if (!product || !product.isAvailable) {
         return errorResponse(res, `Product ${item.productId} is unavailable.`, 400)
       }
-      const subtotal = Number(product.price) * item.quantity
+      const unitPrice = parseFloat(product.price.toString())
+      const subtotal = unitPrice * item.quantity
       totalAmount += subtotal
       orderItemsData.push({
         productId: item.productId,
         quantity: item.quantity,
-        unitPrice: product.price,
+        unitPrice: unitPrice,
         subtotal,
       })
     }
