@@ -1,6 +1,7 @@
 import prisma from '../config/prisma.js'
 import { createInvoiceForOrder } from '../services/invoice.service.js'
 import { successResponse, errorResponse } from '../utils/apiResponse.js'
+import { sendOrderConfirmationEmail } from '../services/email.service.js'
 
 // ── Place a product order (cart checkout) ──────────────────
 export const placeProductOrder = async (req, res, next) => {
@@ -41,7 +42,14 @@ export const placeProductOrder = async (req, res, next) => {
 
     const invoice = await createInvoiceForOrder(order.id, totalAmount)
 
+    // Send confirmation email
+    try {
+      const customer = await prisma.customer.findUnique({ where: { id: req.customer.id } })
+      await sendOrderConfirmationEmail(customer, order, invoice)
+    } catch (e) { console.error('Email error:', e.message) }
+
     return successResponse(res, { order, invoice }, 'Order placed successfully. Invoice generated.', 201)
+
   } catch (err) { next(err) }
 }
 
@@ -71,6 +79,12 @@ export const requestService = async (req, res, next) => {
     })
 
     const invoice = await createInvoiceForOrder(order.id, service.basePrice || 0)
+
+    // Send confirmation email
+    try {
+      const customer = await prisma.customer.findUnique({ where: { id: req.customer.id } })
+      await sendOrderConfirmationEmail(customer, order, invoice)
+    } catch (e) { console.error('Email error:', e.message) }
 
     return successResponse(res, { order, invoice }, 'Service request submitted. Invoice generated.', 201)
   } catch (err) { next(err) }

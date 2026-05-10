@@ -1,6 +1,7 @@
 import prisma from '../config/prisma.js'
 import { logActivity } from '../services/activityLog.service.js'
 import { successResponse, errorResponse } from '../utils/apiResponse.js'
+import { sendOrderStatusEmail } from '../services/email.service.js'
 
 // ── Get all invoices (admin) ───────────────────────────────
 export const getAllInvoices = async (req, res, next) => {
@@ -89,6 +90,15 @@ export const reviewInvoice = async (req, res, next) => {
     }
 
     await logActivity(req.admin.id, `INVOICE_${status}`, invoice.id, remarks || null)
+
+    // Send status email to customer
+    try {
+      const fullOrder = await prisma.order.findUnique({
+        where: { id: invoice.orderId },
+        include: { customer: true },
+      })
+      await sendOrderStatusEmail(fullOrder.customer, fullOrder, updatedInvoice, status, remarks)
+    } catch (e) { console.error('Email error:', e.message) }
 
     return successResponse(res, updatedInvoice, `Invoice ${status.toLowerCase()} successfully.`)
   } catch (err) { next(err) }
