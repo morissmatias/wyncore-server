@@ -46,9 +46,16 @@ export const createProduct = async (req, res, next) => {
 
 export const updateProduct = async (req, res, next) => {
   try {
+    const { name, description, category, price, unit, stock, imageUrl, supplierId, isAvailable } = req.body
     const product = await prisma.product.update({
       where: { id: req.params.id },
-      data: req.body,
+      data: {
+        name, description, category, unit, imageUrl,
+        price: price !== undefined ? Number(price) : undefined,
+        stock: stock !== undefined ? Number(stock) : undefined,
+        supplierId: supplierId || null,
+        isAvailable: isAvailable !== undefined ? Boolean(isAvailable) : undefined,
+      },
     })
     return successResponse(res, product, 'Product updated.')
   } catch (err) { next(err) }
