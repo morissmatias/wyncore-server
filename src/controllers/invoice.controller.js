@@ -48,7 +48,6 @@ export const getInvoiceById = async (req, res, next) => {
 export const reviewInvoice = async (req, res, next) => {
   try {
     const { status, remarks, quotedPrice } = req.body
-    // status must be APPROVED or REJECTED
 
     if (!['APPROVED', 'REJECTED'].includes(status)) {
       return errorResponse(res, 'Status must be APPROVED or REJECTED.', 400)
@@ -63,7 +62,6 @@ export const reviewInvoice = async (req, res, next) => {
       return errorResponse(res, 'This invoice has already been reviewed.', 400)
     }
 
-    // Update invoice
     const updatedInvoice = await prisma.invoice.update({
       where: { id: req.params.id },
       data: {
@@ -74,14 +72,12 @@ export const reviewInvoice = async (req, res, next) => {
       },
     })
 
-    // Update order status to match
     const orderStatus = status === 'APPROVED' ? 'APPROVED' : 'REJECTED'
     await prisma.order.update({
       where: { id: invoice.orderId },
       data: { status: orderStatus },
     })
 
-    // If service order and quotedPrice provided, update service request
     if (invoice.order.serviceRequest && quotedPrice) {
       await prisma.serviceRequest.update({
         where: { orderId: invoice.orderId },
@@ -91,14 +87,13 @@ export const reviewInvoice = async (req, res, next) => {
 
     await logActivity(req.admin.id, `INVOICE_${status}`, invoice.id, remarks || null)
 
-    // Send status email to customer
-    try {
-      const fullOrder = await prisma.order.findUnique({
-        where: { id: invoice.orderId },
-        include: { customer: true },
-      })
-      await sendOrderStatusEmail(fullOrder.customer, fullOrder, updatedInvoice, status, remarks)
-    } catch (e) { console.error('Email error:', e.message) }
+    // Send status email (non-blocking)
+    prisma.order.findUnique({
+      where: { id: invoice.orderId },
+      include: { customer: true },
+    })
+      .then(fullOrder => sendOrderStatusEmail(fullOrder.customer, fullOrder, updatedInvoice, status, remarks))
+      .catch(e => console.error('Email error:', e.message))
 
     return successResponse(res, updatedInvoice, `Invoice ${status.toLowerCase()} successfully.`)
   } catch (err) { next(err) }

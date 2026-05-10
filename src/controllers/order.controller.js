@@ -7,9 +7,7 @@ import { sendOrderConfirmationEmail } from '../services/email.service.js'
 export const placeProductOrder = async (req, res, next) => {
   try {
     const { deliveryAddress, notes, items } = req.body
-    // items: [{ productId, quantity }]
 
-    // Fetch products and compute totals
     let totalAmount = 0
     const orderItemsData = []
 
@@ -42,14 +40,12 @@ export const placeProductOrder = async (req, res, next) => {
 
     const invoice = await createInvoiceForOrder(order.id, totalAmount)
 
-    // Send confirmation email
-    try {
-      const customer = await prisma.customer.findUnique({ where: { id: req.customer.id } })
-      await sendOrderConfirmationEmail(customer, order, invoice)
-    } catch (e) { console.error('Email error:', e.message) }
+    // Send confirmation email (non-blocking)
+    prisma.customer.findUnique({ where: { id: req.customer.id } })
+      .then(customer => sendOrderConfirmationEmail(customer, order, invoice))
+      .catch(e => console.error('Email error:', e.message))
 
     return successResponse(res, { order, invoice }, 'Order placed successfully. Invoice generated.', 201)
-
   } catch (err) { next(err) }
 }
 
@@ -80,11 +76,10 @@ export const requestService = async (req, res, next) => {
 
     const invoice = await createInvoiceForOrder(order.id, service.basePrice || 0)
 
-    // Send confirmation email
-    try {
-      const customer = await prisma.customer.findUnique({ where: { id: req.customer.id } })
-      await sendOrderConfirmationEmail(customer, order, invoice)
-    } catch (e) { console.error('Email error:', e.message) }
+    // Send confirmation email (non-blocking)
+    prisma.customer.findUnique({ where: { id: req.customer.id } })
+      .then(customer => sendOrderConfirmationEmail(customer, order, invoice))
+      .catch(e => console.error('Email error:', e.message))
 
     return successResponse(res, { order, invoice }, 'Service request submitted. Invoice generated.', 201)
   } catch (err) { next(err) }
